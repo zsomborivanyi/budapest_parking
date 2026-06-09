@@ -442,7 +442,7 @@ function showBanner(text, type='info', icon='') {
   const b = document.getElementById('banner');
   document.getElementById('bannerIcon').textContent = icon;
   document.getElementById('bannerText').textContent = text;
-  b.className = `banner show ${type}`;
+  b.className = 'banner show ' + type;
   if (bannerT) clearTimeout(bannerT);
   bannerT = setTimeout(() => b.classList.remove('show'), 5500);
 }
@@ -505,10 +505,10 @@ function saveSession() { localStorage.setItem('ps', JSON.stringify(session)); }
 function updateHdr() {
   const el = document.getElementById('hdrStatus');
   if (session && !session.autoStopped) {
-    el.textContent = `🚗 ${session.plate} · ${session.zoneCode}`;
+    el.textContent = '🚗 ' + session.plate + ' · ' + session.zoneCode;
     el.style.color = 'var(--accent)';
   } else if (session && session.autoStopped) {
-    el.textContent = `⛔ ${session.plate} · automatikusan leállt`;
+    el.textContent = '⛔ ' + session.plate + ' · automatikusan leállt';
     el.style.color = 'var(--danger)';
   } else {
     el.textContent = 'Nincs aktív parkolás';
@@ -585,66 +585,69 @@ function renderTimer() {
   const remLeft = hasRem ? session.reminderAt - now : 0;
 
   if (session.autoStopped) {
-    // Auto-stopped state
-    c.innerHTML = `
-      <div class="session-card auto-stopped" id="sCard">
-        <div class="card-title">Parkolás vége</div>
-        <div class="elapsed-display auto-stopped">${fmtElapsed(elapsed)}</div>
-        <div class="elapsed-meta">Leállt: ${fmtTime(session.startTime + AUTO_STOP_MS)} · Zóna: ${session.zoneCode}</div>
-        <div class="auto-stopped-banner">
-          <div class="auto-stopped-title">🚫 3 óra eltelt – automatikus leállás</div>
-          <div class="auto-stopped-text">A rendszer leállította a parkolást. Nincs szükség STOP SMS-re.</div>
-        </div>
-        <div class="chips">
-          <div class="chip">🚗 <span>${session.plate}</span></div>
-          <div class="chip">📍 <span>${session.zoneCode}</span></div>
-        </div>
-        <button class="btn btn-primary btn-full" onclick="endSession()">Befejezés</button>
-      </div>`;
+    const stopTime = fmtTime(session.startTime + AUTO_STOP_MS);
+    c.innerHTML = '<div class="session-card auto-stopped" id="sCard">'
+      + '<div class="card-title">Parkolás vége</div>'
+      + '<div class="elapsed-display auto-stopped">' + fmtElapsed(elapsed) + '</div>'
+      + '<div class="elapsed-meta">Leállt: ' + stopTime + ' · Zóna: ' + session.zoneCode + '</div>'
+      + '<div class="auto-stopped-banner">'
+      + '<div class="auto-stopped-title">🚫 3 óra eltelt – automatikus leállás</div>'
+      + '<div class="auto-stopped-text">A rendszer leállította a parkolást. Nincs szükség STOP SMS-re.</div>'
+      + '</div>'
+      + '<div class="chips">'
+      + '<div class="chip">🚗 <span>' + session.plate + '</span></div>'
+      + '<div class="chip">📍 <span>' + session.zoneCode + '</span></div>'
+      + '</div>'
+      + '<button class="btn btn-primary btn-full" onclick="endSession()">Befejezés</button>'
+      + '</div>';
     return;
   }
 
-  c.innerHTML = `
-    <div class="session-card${nearLimit ? ' near-limit' : ''}" id="sCard">
-      <div class="card-title">Aktív parkolás</div>
-      <div class="elapsed-display${nearLimit ? ' near-limit' : ''}" id="elapsedDisplay">${fmtElapsed(elapsed)}</div>
-      <div class="elapsed-meta">Indítva: ${fmtTime(session.startTime)} · Zóna: ${session.zoneCode}</div>
+  const cardClass = 'session-card' + (nearLimit ? ' near-limit' : '');
+  const dispClass = 'elapsed-display' + (nearLimit ? ' near-limit' : '');
+  const rowFiring = (hasRem && remLeft <= 60000) ? ' firing' : '';
+  const labelFiring = (hasRem && remLeft <= 60000) ? ' firing' : '';
+  const autoRowClass = 'autostop-row' + (nearLimit ? ' near' : '');
+  const autoValClass = 'autostop-val' + (nearLimit ? ' near' : '');
 
-      <!-- Reminder row -->
-      <div class="rem-row${hasRem && remLeft <= 60000 ? ' firing' : ''}" id="remRow">
-        <div class="rem-left">
-          <div class="rem-label${hasRem && remLeft <= 60000 ? ' firing' : ''}" id="remLabel">
-            ${hasRem ? '⏰ Emlékeztető' : session.reminderFired ? '⏰ Emlékeztető lejárt' : '⏰ Nincs emlékeztető'}
-          </div>
-          ${hasRem
-            ? `<div class="rem-val" id="remCountdown">${fmtCountdown(remLeft)}</div>`
-            : session.reminderFired
-              ? `<div class="rem-val fired">${fmtMin(session.reminderMin)} után lejárt</div>`
-              : `<div style="font-size:12px;color:var(--text2)">Érintsd meg a beállításhoz</div>`
-          }
-        </div>
-        <button class="rem-edit" onclick="openRemModal()">${hasRem ? 'Módosít' : '+ Beállít'}</button>
-      </div>
+  let remInner = '';
+  if (hasRem) {
+    remInner = '<div class="rem-val" id="remCountdown">' + fmtCountdown(remLeft) + '</div>';
+  } else if (session.reminderFired) {
+    remInner = '<div class="rem-val fired">' + fmtMin(session.reminderMin) + ' után lejárt</div>';
+  } else {
+    remInner = '<div style="font-size:12px;color:var(--text2)">Érintsd meg a beállításhoz</div>';
+  }
+  const remLabelText = hasRem ? '⏰ Emlékeztető' : session.reminderFired ? '⏰ Emlékeztető lejárt' : '⏰ Nincs emlékeztető';
+  const remEditText = hasRem ? 'Módosít' : '+ Beállít';
 
-      <!-- Auto-stop countdown -->
-      <div class="autostop-row${nearLimit ? ' near' : ''}">
-        <div>
-          <div class="autostop-label">🚫 Automatikus leállás</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:1px">3 óra után a rendszer leállítja</div>
-        </div>
-        <div class="autostop-val${nearLimit ? ' near' : ''}" id="autoLeft">${fmtCountdown(autoLeft)}</div>
-      </div>
-
-      <div class="chips">
-        <div class="chip">🚗 <span>${session.plate}</span></div>
-        <div class="chip">📍 <span>${session.zoneCode}</span></div>
-      </div>
-
-      <div class="actions">
-        <button class="btn btn-warn" onclick="openRemModal()">⏰ + Emlékeztető</button>
-        <button class="btn btn-danger" onclick="onStop()">⏹ STOP + vége</button>
-      </div>
-    </div>`;
+  c.innerHTML = '<div class="' + cardClass + '" id="sCard">'
+    + '<div class="card-title">Aktív parkolás</div>'
+    + '<div class="' + dispClass + '" id="elapsedDisplay">' + fmtElapsed(elapsed) + '</div>'
+    + '<div class="elapsed-meta">Indítva: ' + fmtTime(session.startTime) + ' · Zóna: ' + session.zoneCode + '</div>'
+    + '<div class="rem-row' + rowFiring + '" id="remRow">'
+    + '<div class="rem-left">'
+    + '<div class="rem-label' + labelFiring + '" id="remLabel">' + remLabelText + '</div>'
+    + remInner
+    + '</div>'
+    + '<button class="rem-edit" onclick="openRemModal()">' + remEditText + '</button>'
+    + '</div>'
+    + '<div class="' + autoRowClass + '">'
+    + '<div>'
+    + '<div class="autostop-label">🚫 Automatikus leállás</div>'
+    + '<div style="font-size:11px;color:var(--text2);margin-top:1px">3 óra után a rendszer leállítja</div>'
+    + '</div>'
+    + '<div class="' + autoValClass + '" id="autoLeft">' + fmtCountdown(autoLeft) + '</div>'
+    + '</div>'
+    + '<div class="chips">'
+    + '<div class="chip">🚗 <span>' + session.plate + '</span></div>'
+    + '<div class="chip">📍 <span>' + session.zoneCode + '</span></div>'
+    + '</div>'
+    + '<div class="actions">'
+    + '<button class="btn btn-warn" onclick="openRemModal()">⏰ + Emlékeztető</button>'
+    + '<button class="btn btn-danger" onclick="onStop()">⏹ STOP + vége</button>'
+    + '</div>'
+    + '</div>';
 }
 
 // ════════════════════════════
@@ -756,16 +759,16 @@ function updPreview() {
   const plate = selP?.plate || '';
   const zone  = (document.getElementById('iZone')?.value || savedZone || '').replace(/\D/g,'');
   if (!plate || zone.length !== 4) {
-    box.innerHTML = `<div class="sms-preview"><div class="sms-preview-lbl">SMS előnézet</div><div class="sms-preview-note">${!plate ? 'Válassz rendszámot.' : 'Add meg a zónakódot.'}</div></div>`;
+    const msg = !plate ? 'Válassz rendszámot.' : 'Add meg a zónakódot.';
+    box.innerHTML = '<div class="sms-preview"><div class="sms-preview-lbl">SMS előnézet</div><div class="sms-preview-note">' + msg + '</div></div>';
     return;
   }
-  box.innerHTML = `
-    <div class="sms-preview">
-      <div class="sms-preview-lbl">SMS előnézet – indítás</div>
-      <div class="sms-preview-to">Címzett: <strong>${smsNum(zone)}</strong></div>
-      <div class="sms-preview-body">${smsStart(plate)}</div>
-      <div class="sms-preview-note">Határozatlan idejű parkolás. Leállításhoz küldj <strong style="color:var(--accent)">STOP</strong>-ot ugyanerre a számra.</div>
-    </div>`;
+  box.innerHTML = '<div class="sms-preview">'
+    + '<div class="sms-preview-lbl">SMS előnézet – indítás</div>'
+    + '<div class="sms-preview-to">Címzett: <strong>' + smsNum(zone) + '</strong></div>'
+    + '<div class="sms-preview-body">' + smsStart(plate) + '</div>'
+    + '<div class="sms-preview-note">Határozatlan idejű parkolás. Leállításhoz küldj <strong style="color:var(--accent)">STOP</strong>-ot ugyanerre a számra.</div>'
+    + '</div>';
 }
 
 function onSendSms() {
@@ -937,15 +940,14 @@ function confirmRem() {
   session.reminderFired = false;
   saveSession();
   closeModal('remModal');
-  showBanner(`Emlékeztető: ${fmtMin(remModalMin)} múlva`,'ok','⏰');
+  showBanner('Emlékeztető: ' + fmtMin(remModalMin) + ' múlva','ok','⏰');
   renderTimer();
 }
 function confirmRemAndClock() {
   confirmRem();
   openClockTimer(remModalMin);
 }
-
-  if (!session) return;
+function disableRem() {
   session.reminderAt = null; session.reminderMin = null; session.reminderFired = false;
   saveSession();
   closeModal('remModal');
@@ -958,7 +960,7 @@ function confirmRemAndClock() {
 // ════════════════════════════
 function openFiredModal() {
   const sub = document.getElementById('firedModalSub');
-  if (sub && session) sub.textContent = `🚗 ${session.plate} – ${fmtMin(session.reminderMin)} eltelt. A parkolás még fut.`;
+  if (sub && session) sub.textContent = '🚗 ' + session.plate + ' – ' + fmtMin(session.reminderMin) + ' eltelt. A parkolás még fut.';
   document.getElementById('firedModal').classList.add('open');
   renderTimer();
 }
