@@ -399,11 +399,12 @@ function saveNtfy(topic) { ntfyTopic = topic; localStorage.setItem('ntfyTopic', 
 async function sendNtfy(title, body) {
   if (!ntfyTopic) return;
   try {
-    await fetch('https://ntfy.sh/' + encodeURIComponent(ntfyTopic), {
-      method: 'POST',
-      headers: { 'Title': title, 'Priority': 'high', 'Tags': 'parking' },
-      body: body
-    });
+    // Use query params instead of custom headers — avoids CORS preflight which ntfy blocks from browsers
+    const url = 'https://ntfy.sh/' + encodeURIComponent(ntfyTopic)
+      + '?title=' + encodeURIComponent(title)
+      + '&priority=high'
+      + '&tags=parking';
+    await fetch(url, { method: 'POST', body: body });
   } catch(e) { console.warn('ntfy failed', e); }
 }
 
@@ -1138,8 +1139,19 @@ function clearNtfyTopic() {
 async function testNtfy() {
   if (!ntfyTopic) return;
   showBanner('Teszt küldése...','info','📤');
-  await sendNtfy('🅿️ BParking teszt', 'Az ntfy értesítések működnek!');
-  showBanner('Teszt elküldve — ellenőrizd az ntfy appot','ok','✅');
+  try {
+    const url = 'https://ntfy.sh/' + encodeURIComponent(ntfyTopic)
+      + '?title=' + encodeURIComponent('🅿️ BParking teszt')
+      + '&priority=high&tags=parking';
+    const res = await fetch(url, { method: 'POST', body: 'Az ntfy értesítések működnek!' });
+    if (res.ok) {
+      showBanner('Teszt elküldve — ellenőrizd az ntfy appot','ok','✅');
+    } else {
+      showBanner('Hiba: ' + res.status + ' – ellenőrizd a témát','danger','❌');
+    }
+  } catch(e) {
+    showBanner('Kapcsolati hiba – ellenőrizd az internetet','danger','❌');
+  }
 }
 
 // ════════════════════════════
