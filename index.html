@@ -311,7 +311,6 @@
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary btn-full" onclick="confirmRem()">Beállítás</button>
-      <button class="btn btn-secondary btn-full" id="clockTimerBtn" onclick="confirmRemAndClock()" style="display:none">⏱ Beállítás + Óra app megnyitása</button>
       <button class="btn btn-danger btn-full" onclick="disableRem()">Emlékeztető kikapcsolása</button>
       <button class="btn btn-secondary btn-full" onclick="closeModal('remModal')">Mégsem</button>
     </div>
@@ -489,10 +488,9 @@ async function requestNotif() {
   renderTimer(); showBanner('Értesítések bekapcsolva','ok','✅');
 }
 function fireNotif(title, body) {
-  // In-app notification (only works when app is open)
+  // In-app notification only (when app is open/foregrounded)
+  // ntfy is handled exclusively via server-side scheduled pushes — no duplicate sends
   if (Notification?.permission === 'granted') new Notification(title, {body, tag:'parkir'});
-  // ntfy push (works in background if topic is configured)
-  sendNtfy(title, body);
 }
 
 // Open iOS Clock app with timer pre-set (user just taps Start)
@@ -680,18 +678,18 @@ function renderTimer() {
 
   if (session.autoStopped) {
     const stopTime = fmtTime(session.startTime + AUTO_STOP_MS);
+    const pChip = session.plate ? '<div class="chip">🚗 <span>' + session.plate + '</span></div>' : '';
+    const zChip = session.zoneCode ? '<div class="chip">📍 <span>' + session.zoneCode + '</span></div>' : '';
+    const zMeta = session.zoneCode ? ' · Zóna: ' + session.zoneCode : '';
     c.innerHTML = '<div class="session-card auto-stopped" id="sCard">'
       + '<div class="card-title">Parkolás vége</div>'
       + '<div class="elapsed-display auto-stopped">' + fmtElapsed(elapsed) + '</div>'
-      + '<div class="elapsed-meta">Leállt: ' + stopTime + ' · Zóna: ' + session.zoneCode + '</div>'
+      + '<div class="elapsed-meta">Leállt: ' + stopTime + zMeta + '</div>'
       + '<div class="auto-stopped-banner">'
       + '<div class="auto-stopped-title">🚫 3 óra eltelt – automatikus leállás</div>'
       + '<div class="auto-stopped-text">A rendszer leállította a parkolást. Nincs szükség STOP SMS-re.</div>'
       + '</div>'
-      + '<div class="chips">'
-      + '<div class="chip">🚗 <span>' + session.plate + '</span></div>'
-      + '<div class="chip">📍 <span>' + session.zoneCode + '</span></div>'
-      + '</div>'
+      + (pChip || zChip ? '<div class="chips">' + pChip + zChip + '</div>' : '')
       + '<button class="btn btn-primary btn-full" onclick="endSession()">Befejezés</button>'
       + '</div>';
     return;
@@ -715,10 +713,17 @@ function renderTimer() {
   const remLabelText = hasRem ? '⏰ Emlékeztető' : session.reminderFired ? '⏰ Emlékeztető lejárt' : '⏰ Nincs emlékeztető';
   const remEditText = hasRem ? 'Módosít' : '+ Beállít';
 
+  const plateChip = session.plate ? '<div class="chip">🚗 <span>' + session.plate + '</span></div>' : '';
+  const zoneChip  = session.zoneCode ? '<div class="chip">📍 <span>' + session.zoneCode + '</span></div>' : '';
+  const zoneMeta  = session.zoneCode ? ' · Zóna: ' + session.zoneCode : '';
+  const stopBtn   = session.zoneCode
+    ? '<button class="btn btn-danger" onclick="onStop()">⏹ STOP + vége</button>'
+    : '<button class="btn btn-danger" onclick="onStop()">⏹ Leállítás</button>';
+
   c.innerHTML = '<div class="' + cardClass + '" id="sCard">'
     + '<div class="card-title">Aktív parkolás</div>'
     + '<div class="' + dispClass + '" id="elapsedDisplay">' + fmtElapsed(elapsed) + '</div>'
-    + '<div class="elapsed-meta">Indítva: ' + fmtTime(session.startTime) + ' · Zóna: ' + session.zoneCode + '</div>'
+    + '<div class="elapsed-meta">Indítva: ' + fmtTime(session.startTime) + zoneMeta + '</div>'
     + '<div class="rem-row' + rowFiring + '" id="remRow">'
     + '<div class="rem-left">'
     + '<div class="rem-label' + labelFiring + '" id="remLabel">' + remLabelText + '</div>'
@@ -733,13 +738,10 @@ function renderTimer() {
     + '</div>'
     + '<div class="' + autoValClass + '" id="autoLeft">' + fmtCountdown(autoLeft) + '</div>'
     + '</div>'
-    + '<div class="chips">'
-    + '<div class="chip">🚗 <span>' + session.plate + '</span></div>'
-    + '<div class="chip">📍 <span>' + session.zoneCode + '</span></div>'
-    + '</div>'
+    + (plateChip || zoneChip ? '<div class="chips">' + plateChip + zoneChip + '</div>' : '')
     + '<div class="actions">'
     + '<button class="btn btn-warn" onclick="openRemModal()">⏰ + Emlékeztető</button>'
-    + '<button class="btn btn-danger" onclick="onStop()">⏹ STOP + vége</button>'
+    + stopBtn
     + '</div>'
     + '</div>';
 }
@@ -749,7 +751,6 @@ function renderTimer() {
 // ════════════════════════════
 function renderForm(c) {
   const selP = getSelectedPlate();
-  const notifGranted = (typeof Notification !== 'undefined') && Notification.permission === 'granted';
 
   // Build plate section
   let plateSection = '';
@@ -805,32 +806,23 @@ function renderForm(c) {
       + '</div>';
   }
 
-  // Build notif row
-  const notifRow = '<div class="notif-row">'
-    + '<div class="notif-row-l">'
-    + '<div class="notif-lbl">Értesítések</div>'
-    + '<div class="notif-sub">' + (notifGranted ? 'Bekapcsolva' : 'Kikapcsolva – emlékeztetőhöz szükséges') + '</div>'
-    + '</div>'
-    + (notifGranted ? '<div class="notif-btn granted">✓ OK</div>' : '<button class="notif-btn" onclick="requestNotif()">Engedély</button>')
-    + '</div>';
-
   c.innerHTML = '<div class="card">'
     + '<div class="card-title">Új parkolás</div>'
     + '<div class="form-row"><label class="form-label">Rendszám</label>' + plateSection + '</div>'
     + '<div class="form-row">'
     + '<label class="form-label">Zónakód <span style="text-transform:none;font-weight:400;letter-spacing:0">(4 szám az automatáról)</span></label>'
-    + '<input class="form-input" id="iZone" type="tel" style="font-size:22px;font-weight:700;letter-spacing:4px;text-align:center;padding:14px" placeholder="0000" maxlength="4" value="' + savedZone + '" oninput="savedZone=this.value.replace(/\\D/g,\'\');this.value=savedZone;localStorage.setItem(\'sZone\',savedZone);updPreview()"/>'
+    + '<input class="form-input" id="iZone" type="tel" style="font-size:22px;font-weight:700;letter-spacing:4px;text-align:center;padding:14px" placeholder="0000" maxlength="4" value="' + savedZone + '" oninput="savedZone=this.value.replace(/\\D/g,\'\');this.value=savedZone;localStorage.setItem(\'sZone\',savedZone);updPreview();updSmsBtn()"/>'
     + '<div class="hint">A 4 jegyű zónakód a parkolóautomata tetején látható.</div>'
     + '</div>'
     + '<div class="form-row"><label class="form-label">Emlékeztető</label>' + remSection + '</div>'
     + '<div id="smsBox"></div>'
-    + '<button class="btn btn-sms btn-full" style="margin-top:16px" onclick="onSendSms()">💬 SMS küldése (parkolás indítása)</button>'
+    + '<button class="btn btn-sms btn-full" id="smsSendBtn" style="margin-top:16px;opacity:0.35;filter:grayscale(1);cursor:not-allowed" disabled onclick="onSendSms()">💬 SMS küldése (parkolás indítása)</button>'
     + '<button class="btn btn-primary btn-full" style="margin-top:8px" onclick="onStartTimer()">▶ Időzítő indítása</button>'
     + '<div class="hint" style="text-align:center;margin-top:8px">Küldd el az SMS-t először, majd indítsd el az időzítőt.</div>'
-    + '</div>'
-    + notifRow;
+    + '</div>';
 
   updPreview();
+  updSmsBtn();
 }
 
 function setFormRemOn(on) {
@@ -846,16 +838,32 @@ function onFormSlider(v) {
   if (head) head.textContent = `⏰ ${fmtMin(formRemMin)} után értesít`;
 }
 
+function updSmsBtn() {
+  const btn = document.getElementById('smsSendBtn');
+  if (!btn) return;
+  const selP = getSelectedPlate();
+  const zone = (document.getElementById('iZone')?.value || savedZone || '').replace(/\D/g,'');
+  const ready = selP && zone.length === 4;
+  btn.disabled = !ready;
+  btn.style.opacity = ready ? '1' : '0.35';
+  btn.style.filter = ready ? 'none' : 'grayscale(1)';
+  btn.style.cursor = ready ? 'pointer' : 'not-allowed';
+}
+
 function updPreview() {
   const box = document.getElementById('smsBox');
   if (!box) return;
   const selP = getSelectedPlate();
   const plate = selP?.plate || '';
   const zone  = (document.getElementById('iZone')?.value || savedZone || '').replace(/\D/g,'');
+  if (!plate && !zone) {
+    box.innerHTML = '<div class="sms-preview"><div class="sms-preview-lbl">SMS előnézet</div><div class="sms-preview-note">SMS küldéshez add meg a rendszámot és a zónakódot.</div></div>';
+    updSmsBtn(); return;
+  }
   if (!plate || zone.length !== 4) {
-    const msg = !plate ? 'Válassz rendszámot.' : 'Add meg a zónakódot.';
+    const msg = !plate ? 'Válassz rendszámot az SMS-hez.' : 'Add meg a 4 jegyű zónakódot az SMS-hez.';
     box.innerHTML = '<div class="sms-preview"><div class="sms-preview-lbl">SMS előnézet</div><div class="sms-preview-note">' + msg + '</div></div>';
-    return;
+    updSmsBtn(); return;
   }
   box.innerHTML = '<div class="sms-preview">'
     + '<div class="sms-preview-lbl">SMS előnézet – indítás</div>'
@@ -863,6 +871,7 @@ function updPreview() {
     + '<div class="sms-preview-body">' + smsStart(plate) + '</div>'
     + '<div class="sms-preview-note">Határozatlan idejű parkolás. Leállításhoz küldj <strong style="color:var(--accent)">STOP</strong>-ot ugyanerre a számra.</div>'
     + '</div>';
+  updSmsBtn();
 }
 
 function onSendSms() {
@@ -876,9 +885,10 @@ function onSendSms() {
 function onStartTimer() {
   const selP = getSelectedPlate();
   const zone  = (document.getElementById('iZone')?.value || '').replace(/\D/g,'');
-  if (!selP) { showBanner('Válassz rendszámot!','warn','⚠️'); return; }
-  if (zone.length !== 4) { showBanner('A zónakód pontosan 4 szám!','warn','⚠️'); return; }
-  startSession(selP.plate, zone, formRemOn ? formRemMin : null);
+  // Timer can always start — plate and zone are optional (user may not need SMS)
+  const plate = selP?.plate || '';
+  const zoneVal = zone.length === 4 ? zone : '';
+  startSession(plate, zoneVal, formRemOn ? formRemMin : null);
   showBanner('Időzítő elindult!','ok','✅');
 }
 
@@ -894,6 +904,7 @@ function selectPlate(id) {
   selectedPlateId = id;
   ddOpen = false;
   renderTimer();
+  // renderTimer rebuilds the whole form so updSmsBtn is called via renderForm → updSmsBtn
 }
 
 // ════════════════════════════
@@ -1006,7 +1017,7 @@ function cancelPlateForm() {
 // ════════════════════════════
 function onStop() {
   if (!session) return;
-  window.location.href = linkStop(session.zoneCode);
+  if (session.zoneCode) window.location.href = linkStop(session.zoneCode);
   setTimeout(() => endSession(), 300);
 }
 
@@ -1018,9 +1029,6 @@ function openRemModal() {
   remModalMin = cur;
   document.getElementById('remModalSlider').value = cur;
   document.getElementById('remModalVal').textContent = fmtMin(cur);
-  // Show clock button always — useful fallback
-  const cb = document.getElementById('clockTimerBtn');
-  if (cb) cb.style.display = '';
   document.getElementById('remModal').classList.add('open');
 }
 function onRemModalSlider(v) {
@@ -1146,17 +1154,7 @@ function locateUser() {
 }
 
 function openNmzrt() {
-  if (lastPos) {
-    const lat = lastPos.lat.toFixed(6);
-    const lng = lastPos.lng.toFixed(6);
-    // Open Google Maps centered on user's exact location at street level
-    // This is the most useful: user sees their real street, can identify zone from signs
-    window.open('https://www.google.com/maps/@' + lat + ',' + lng + ',17z', '_blank');
-  } else {
-    // No location yet — fall back to opening NMZRT zone map overview
-    window.open('https://nmzrt.hu/en/services/parking/parkolasi-zonak.html', '_blank');
-    showBanner('Előbb kérd le a helyzeted a 📍 gombbal', 'warn', '⚠️');
-  }
+  window.open('https://nmzrt.hu/en/services/parking/parkolasi-zonak.html', '_blank');
 }
 
 // ════════════════════════════
@@ -1234,16 +1232,14 @@ function clearNtfyTopic() {
 
 async function testNtfy() {
   if (!ntfyTopic) return;
-  showBanner('Teszt küldése...','info','📤');
+  showBanner('Teszt ütemezve — 5 mp múlva érkezik','info','📤');
   try {
-    const url = 'https://ntfy.sh/' + encodeURIComponent(ntfyTopic)
-      + '?title=' + encodeURIComponent('🅿️ BParking teszt')
-      + '&priority=high&tags=parking';
-    const res = await fetch(url, { method: 'POST', body: 'Az ntfy értesítések működnek!' });
-    if (res.ok) {
-      showBanner('Teszt elküldve — ellenőrizd az ntfy appot','ok','✅');
+    const atTimestamp = Date.now() + 5000; // 5-second delay, same mechanism as real reminders
+    const id = await scheduleNtfy('🅿️ BParking teszt', 'Az ntfy értesítések működnek!', atTimestamp);
+    if (id) {
+      showBanner('Teszt elküldve — 5 mp múlva ellenőrizd az ntfy appot','ok','✅');
     } else {
-      showBanner('Hiba: ' + res.status + ' – ellenőrizd a témát','danger','❌');
+      showBanner('Hiba – ellenőrizd a témát és az internetkapcsolatot','danger','❌');
     }
   } catch(e) {
     showBanner('Kapcsolati hiba – ellenőrizd az internetet','danger','❌');
