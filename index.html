@@ -367,6 +367,8 @@ let history = JSON.parse(localStorage.getItem('ph') || '[]');
 let ticker  = null;
 let bannerT = null;
 let mapObj  = null;
+let scheduledNtfyId = localStorage.getItem('scheduledNtfyId') || null; // persisted across page loads
+let scheduledAutoStopNtfyId = localStorage.getItem('scheduledAutoStopNtfyId') || null;
 
 let savedPlate = localStorage.getItem('sPlate') || '';
 let savedZone  = localStorage.getItem('sZone')  || '';
@@ -399,13 +401,43 @@ function saveNtfy(topic) { ntfyTopic = topic; localStorage.setItem('ntfyTopic', 
 async function sendNtfy(title, body) {
   if (!ntfyTopic) return;
   try {
-    // Use query params instead of custom headers — avoids CORS preflight which ntfy blocks from browsers
+    // Use query params — avoids CORS preflight which ntfy blocks from browsers
     const url = 'https://ntfy.sh/' + encodeURIComponent(ntfyTopic)
       + '?title=' + encodeURIComponent(title)
       + '&priority=high'
       + '&tags=parking';
     await fetch(url, { method: 'POST', body: body });
   } catch(e) { console.warn('ntfy failed', e); }
+}
+
+// Schedule a future ntfy notification using ntfy's server-side Delay header.
+// The server holds the message and delivers it at the given Unix timestamp —
+// zero JavaScript involvement after this call, works when app is backgrounded.
+// Returns the message ID so it can be cancelled later.
+async function scheduleNtfy(title, body, atTimestamp) {
+  if (!ntfyTopic) return null;
+  try {
+    const msgId = 'bpk-' + Date.now() + '-' + Math.random().toString(36).slice(2,7);
+    // ntfy Delay via query string: unix timestamp in seconds, or relative like "10m"
+    const delaySec = Math.max(10, Math.round((atTimestamp - Date.now()) / 1000));
+    const url = 'https://ntfy.sh/' + encodeURIComponent(ntfyTopic)
+      + '?title=' + encodeURIComponent(title)
+      + '&priority=high'
+      + '&tags=alarm_clock'
+      + '&delay=' + delaySec + 's'
+      + '&id=' + msgId;
+    await fetch(url, { method: 'POST', body: body });
+    return msgId;
+  } catch(e) { console.warn('scheduleNtfy failed', e); return null; }
+}
+
+// Cancel a previously scheduled ntfy message by ID.
+async function cancelScheduledNtfy(msgId) {
+  if (!ntfyTopic || !msgId) return;
+  try {
+    // DELETE removes a scheduled (not yet delivered) message from ntfy's queue
+    await fetch('https://ntfy.sh/' + encodeURIComponent(ntfyTopic) + '/' + msgId, { method: 'DELETE' });
+  } catch(e) { console.warn('cancelScheduledNtfy failed', e); }
 }
 
 // ════════════════════════════
@@ -471,6 +503,61 @@ function openClockTimer(minutes) {
 }
 
 // ════════════════════════════
+// REMINDER SCHEDULING (server-side ntfy delay)
+// ════════════════════════════
+// Called whenever a reminder is set or updated — cancels any previous
+// scheduled ntfy message and posts a new one with the correct future timestamp.
+async function scheduleReminderNtfy() {
+  // Cancel whatever was previously scheduled
+  if (scheduledNtfyId) {
+    await cancelScheduledNtfy(scheduledNtfyId);
+    scheduledNtfyId = null;
+    localStorage.removeItem('scheduledNtfyId');
+  }
+  if (!session || !session.reminderAt || session.reminderFired) return;
+  const title = '⏰ Parkolási emlékeztető';
+  const body  = `${session.plate} – ${fmtMin(session.reminderMin)} eltelt`;
+  const id = await scheduleNtfy(title, body, session.reminderAt);
+  if (id) {
+    scheduledNtfyId = id;
+    localStorage.setItem('scheduledNtfyId', id);
+  }
+}
+
+async function cancelReminderNtfy() {
+  if (scheduledNtfyId) {
+    await cancelScheduledNtfy(scheduledNtfyId);
+    scheduledNtfyId = null;
+    localStorage.removeItem('scheduledNtfyId');
+  }
+}
+
+async function scheduleAutoStopNtfy() {
+  if (scheduledAutoStopNtfyId) {
+    await cancelScheduledNtfy(scheduledAutoStopNtfyId);
+    scheduledAutoStopNtfyId = null;
+    localStorage.removeItem('scheduledAutoStopNtfyId');
+  }
+  if (!session) return;
+  const autoStopAt = session.startTime + AUTO_STOP_MS;
+  const title = '🚫 Parkolás automatikusan leállt';
+  const body  = `${session.plate} – 3 óra eltelt, a rendszer leállította`;
+  const id = await scheduleNtfy(title, body, autoStopAt);
+  if (id) {
+    scheduledAutoStopNtfyId = id;
+    localStorage.setItem('scheduledAutoStopNtfyId', id);
+  }
+}
+
+async function cancelAutoStopNtfy() {
+  if (scheduledAutoStopNtfyId) {
+    await cancelScheduledNtfy(scheduledAutoStopNtfyId);
+    scheduledAutoStopNtfyId = null;
+    localStorage.removeItem('scheduledAutoStopNtfyId');
+  }
+}
+
+// ════════════════════════════
 // SESSION
 // ════════════════════════════
 function startSession(plate, zone, remMin) {
@@ -486,11 +573,17 @@ function startSession(plate, zone, remMin) {
   saveSession();
   ticker = setInterval(tick, 1000);
   updateHdr(); renderTimer();
+  // Schedule server-side ntfy push so it fires even when app is backgrounded
+  scheduleReminderNtfy();
+  // Schedule the 3-hour auto-stop notification via ntfy as well
+  scheduleAutoStopNtfy();
 }
 
 function endSession(manual=true) {
   if (!session) return;
   if (ticker) clearInterval(ticker);
+  cancelReminderNtfy(); // clean up any scheduled push
+  cancelAutoStopNtfy();
   history.unshift({
     plate: session.plate, zoneCode: session.zoneCode,
     startTime: session.startTime,
@@ -943,6 +1036,8 @@ function confirmRem() {
   closeModal('remModal');
   showBanner('Emlékeztető: ' + fmtMin(remModalMin) + ' múlva','ok','⏰');
   renderTimer();
+  // Re-schedule the server-side push for the new time
+  scheduleReminderNtfy();
 }
 function confirmRemAndClock() {
   confirmRem();
@@ -951,6 +1046,7 @@ function confirmRemAndClock() {
 function disableRem() {
   session.reminderAt = null; session.reminderMin = null; session.reminderFired = false;
   saveSession();
+  cancelReminderNtfy(); // remove the queued push from ntfy's server
   closeModal('remModal');
   showBanner('Emlékeztető kikapcsolva','info','🔕');
   renderTimer();
