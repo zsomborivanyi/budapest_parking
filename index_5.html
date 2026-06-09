@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Parkír" />
+  <meta name="theme-color" content="#0f1117" />
+  <title>Parkír</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a; --border:#2e3248;
+      --accent:#4f8ef7; --accent2:#7c5cfc;
+      --warn:#f7a84f; --danger:#f75f5f; --success:#4fc98e;
+      --text:#e8eaf6; --text2:#8890b0;
+      --radius:16px;
+      --safe-top:env(safe-area-inset-top,0px);
+      --safe-bottom:env(safe-area-inset-bottom,0px);
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{
+      background:var(--bg);color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif;
+      height:100dvh;display:flex;flex-direction:column;overflow:hidden;
+      padding-top:var(--safe-top);padding-bottom:var(--safe-bottom);
+    }
+
+    /* HEADER */
+    header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 10px;flex-shrink:0;}
+    header h1{font-size:22px;font-weight:800;letter-spacing:-.5px;}
+    header h1 span{color:var(--accent);}
+
+    /* TABS */
+    .tabs{display:flex;padding:0 20px;gap:6px;flex-shrink:0;margin-bottom:14px;}
+    .tab{flex:1;padding:9px 4px;border-radius:10px;border:none;background:var(--surface);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;}
+    .tab.active{background:var(--accent);color:#fff;}
+
+    /* VIEWS */
+    .view{display:none;flex:1;overflow:hidden;flex-direction:column;}
+    .view.active{display:flex;}
+    .scroll{flex:1;overflow-y:auto;padding:0 20px 32px;display:flex;flex-direction:column;gap:14px;}
+
+    /* CARD */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
+    .card-title{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:14px;}
+
+    /* SESSION CARD */
+    .session-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;}
+    .session-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:background .4s;}
+    .session-card.near-limit::before{background:linear-gradient(90deg,var(--warn),#f76f4f);}
+    .session-card.auto-stopped::before{background:var(--danger);}
+
+    /* ELAPSED */
+    .elapsed-display{font-size:64px;font-weight:800;letter-spacing:-3px;line-height:1;font-variant-numeric:tabular-nums;color:var(--text);margin-bottom:2px;transition:color .4s;}
+    .elapsed-display.near-limit{color:var(--warn);}
+    .elapsed-display.auto-stopped{color:var(--danger);}
+    .elapsed-meta{font-size:13px;color:var(--text2);margin-bottom:16px;}
+
+    /* REMINDER ROW */
+    .rem-row{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+    .rem-row.firing{border-color:var(--warn);background:rgba(247,168,79,.08);}
+    .rem-left{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;}
+    .rem-label{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);}
+    .rem-label.firing{color:var(--warn);}
+    .rem-val{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);}
+    .rem-val.fired{color:var(--warn);}
+    .rem-edit{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;flex-shrink:0;}
+    .rem-edit:active{transform:scale(.95);}
+
+    /* AUTO-STOP ROW */
+    .autostop-row{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;}
+    .autostop-row.near{border-color:rgba(247,168,79,.4);}
+    .autostop-label{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);}
+    .autostop-val{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text2);}
+    .autostop-val.near{color:var(--warn);}
+
+    /* CHIPS */
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+    .chip{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--text2);}
+    .chip span{color:var(--text);}
+
+    /* ACTIONS */
+    .actions{display:flex;gap:8px;}
+
+    /* AUTO-STOPPED STATE */
+    .auto-stopped-banner{background:rgba(247,95,95,.1);border:1.5px solid rgba(247,95,95,.3);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+    .auto-stopped-title{font-size:14px;font-weight:700;color:var(--danger);margin-bottom:4px;}
+    .auto-stopped-text{font-size:13px;color:var(--text2);line-height:1.5;}
+
+    /* BUTTONS */
+    .btn{flex:1;padding:13px 8px;border-radius:12px;border:none;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:5px;}
+    .btn:active{transform:scale(.96);opacity:.85;}
+    .btn-primary {background:var(--accent);color:#fff;}
+    .btn-secondary{background:var(--surface2);color:var(--text);border:1px solid var(--border);}
+    .btn-danger  {background:rgba(247,95,95,.12);color:var(--danger);border:1px solid rgba(247,95,95,.25);}
+    .btn-warn    {background:rgba(247,168,79,.15);color:var(--warn);border:1px solid rgba(247,168,79,.3);}
+    .btn-sms     {background:rgba(79,201,142,.12);color:var(--success);border:1px solid rgba(79,201,142,.25);}
+    .btn-full    {width:100%;flex:none;}
+
+    /* FORM */
+    .form-row{margin-bottom:14px;}
+    .form-label{display:block;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text2);margin-bottom:7px;}
+    .form-input{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-size:16px;outline:none;transition:border-color .2s;-webkit-appearance:none;}
+    .form-input:focus{border-color:var(--accent);}
+    .hint{font-size:11px;color:var(--text2);margin-top:6px;line-height:1.4;}
+    .hint strong{color:var(--accent);}
+
+    /* REMINDER SECTION IN FORM */
+    .rem-section{background:var(--surface2);border:1.5px solid var(--accent);border-radius:12px;padding:14px;}
+    .rem-section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+    .rem-section-title{font-size:13px;font-weight:700;color:var(--text);}
+    .rem-off-btn{font-size:12px;font-weight:600;color:var(--text2);background:none;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;}
+    .rem-off-btn:active{background:var(--border);}
+
+    /* SLIDER STYLED */
+    .slider-wrap{display:flex;flex-direction:column;gap:8px;}
+    .slider-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--text2);}
+    .slider-main{display:flex;gap:10px;align-items:center;}
+    .slider-main input[type="range"]{flex:1;accent-color:var(--accent);height:4px;}
+    .slider-current{font-size:18px;font-weight:800;color:var(--accent);min-width:56px;text-align:right;}
+
+    /* reminder-off state */
+    .rem-off-section{background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;padding:14px;display:flex;align-items:center;justify-content:space-between;}
+    .rem-off-label{font-size:13px;font-weight:600;color:var(--text2);}
+    .rem-on-btn{font-size:12px;font-weight:600;color:var(--accent);background:rgba(79,142,247,.12);border:1px solid rgba(79,142,247,.3);padding:7px 14px;border-radius:8px;cursor:pointer;}
+
+    /* SMS PREVIEW */
+    .sms-preview{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;}
+    .sms-preview-lbl{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;}
+    .sms-preview-to{font-size:12px;color:var(--text2);margin-bottom:4px;}
+    .sms-preview-to strong{color:var(--accent);font-family:monospace;}
+    .sms-preview-body{font-size:16px;font-weight:700;font-family:'SF Mono','Courier New',monospace;color:var(--text);letter-spacing:1px;}
+    .sms-preview-note{font-size:11px;color:var(--text2);margin-top:8px;line-height:1.5;}
+
+    /* PLATE SELECTOR */
+    .plate-selector-row{display:flex;gap:8px;align-items:stretch;}
+    .plate-dropdown{flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:0 14px;color:var(--text);font-size:16px;font-weight:700;outline:none;cursor:pointer;display:flex;align-items:center;gap:10px;min-height:50px;transition:border-color .2s;}
+    .plate-dropdown:active,.plate-dropdown.open{border-color:var(--accent);}
+    .plate-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;}
+    .plate-dd-arrow{margin-left:auto;color:var(--text2);font-size:12px;transition:transform .2s;}
+    .plate-dd-arrow.open{transform:rotate(180deg);}
+    .plate-manage-btn{background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:0 14px;color:var(--text2);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:border-color .2s;}
+    .plate-manage-btn:active{border-color:var(--accent);color:var(--accent);}
+
+    /* DROPDOWN LIST */
+    .plate-dd-list{background:var(--surface);border:1.5px solid var(--accent);border-radius:12px;overflow:hidden;margin-top:6px;display:none;}
+    .plate-dd-list.open{display:block;}
+    .plate-dd-item{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer;transition:background .15s;border-bottom:1px solid var(--border);}
+    .plate-dd-item:last-child{border-bottom:none;}
+    .plate-dd-item:active{background:var(--surface2);}
+    .plate-dd-item.selected{background:rgba(79,142,247,.08);}
+    .plate-dd-plate{font-size:15px;font-weight:700;font-family:monospace;letter-spacing:1px;}
+    .plate-dd-name{font-size:12px;color:var(--text2);margin-top:1px;}
+    .plate-dd-check{margin-left:auto;color:var(--accent);font-size:16px;}
+
+    /* PLATES MANAGEMENT MODAL */
+    .plates-modal-scroll{max-height:55vh;overflow-y:auto;margin:0 -20px;padding:0 20px;}
+    .plate-mgmt-item{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);}
+    .plate-mgmt-item:last-child{border-bottom:none;}
+    .plate-mgmt-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;cursor:pointer;}
+    .plate-mgmt-info{flex:1;min-width:0;}
+    .plate-mgmt-plate{font-size:14px;font-weight:700;font-family:monospace;letter-spacing:1px;}
+    .plate-mgmt-name{font-size:12px;color:var(--text2);margin-top:1px;}
+    .plate-mgmt-default{font-size:10px;font-weight:700;color:var(--accent);letter-spacing:.5px;text-transform:uppercase;margin-top:2px;}
+    .plate-mgmt-actions{display:flex;gap:6px;flex-shrink:0;}
+    .pmg-btn{padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;}
+    .pmg-btn.def{color:var(--accent);border-color:rgba(79,142,247,.3);}
+    .pmg-btn.del{color:var(--danger);border-color:rgba(247,95,95,.25);}
+    .pmg-btn:active{transform:scale(.94);}
+
+    /* ADD / EDIT PLATE FORM */
+    .plate-form{background:var(--surface2);border:1.5px solid var(--border);border-radius:12px;padding:14px;margin-top:12px;}
+    .plate-form-title{font-size:12px;font-weight:700;color:var(--text2);letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px;}
+    .plate-form input[type="text"]{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:15px;font-weight:700;outline:none;margin-bottom:8px;font-family:monospace;letter-spacing:1px;}
+    .plate-form input[type="text"]:focus{border-color:var(--accent);}
+    .plate-form input[type="text"].name-input{font-family:inherit;font-weight:600;letter-spacing:0;font-size:14px;}
+    .colour-picker-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+    .colour-swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2.5px solid transparent;transition:all .15s;flex-shrink:0;}
+    .colour-swatch.sel{border-color:#fff;transform:scale(1.15);}
+    .colour-swatch:active{transform:scale(.9);}
+    .plate-form-btns{display:flex;gap:8px;margin-top:4px;}
+
+    /* MAP */
+    #map{flex:1;}
+    .map-legend{padding:12px 20px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;}
+    .legend-title{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text2);margin-bottom:8px;}
+    .legend-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 16px;}
+    .legend-item{display:flex;align-items:center;gap:7px;font-size:12px;}
+    .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+
+    /* HISTORY */
+    .history-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;}
+    .history-plate{font-size:15px;font-weight:700;}
+    .history-meta{font-size:12px;color:var(--text2);margin-top:2px;}
+    .history-zone{font-size:12px;font-weight:700;font-family:monospace;background:var(--surface2);border:1px solid var(--border);padding:4px 10px;border-radius:8px;color:var(--text2);}
+
+    /* MODAL */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-end;z-index:200;padding-bottom:var(--safe-bottom);opacity:0;pointer-events:none;transition:opacity .2s;}
+    .modal-overlay.open{opacity:1;pointer-events:all;}
+    .modal{background:var(--surface);border-radius:20px 20px 0 0;border-top:1px solid var(--border);padding:20px 20px 24px;width:100%;transform:translateY(16px);transition:transform .25s;}
+    .modal-overlay.open .modal{transform:translateY(0);}
+    .modal-title{font-size:17px;font-weight:700;text-align:center;margin-bottom:4px;}
+    .modal-sub{font-size:13px;color:var(--text2);text-align:center;margin-bottom:16px;}
+    .modal-actions{display:flex;flex-direction:column;gap:10px;margin-top:16px;}
+
+    /* BANNER */
+    .banner{position:fixed;top:calc(var(--safe-top) + 56px);left:12px;right:12px;border-radius:14px;padding:13px 16px;font-size:14px;font-weight:600;z-index:300;display:flex;align-items:center;gap:10px;transform:translateY(-120px);transition:transform .4s cubic-bezier(.175,.885,.32,1.275);box-shadow:0 4px 24px rgba(0,0,0,.5);}
+    .banner.show{transform:translateY(0);}
+    .banner.info  {background:var(--accent);color:#fff;}
+    .banner.warn  {background:var(--warn);color:#0f1117;}
+    .banner.danger{background:var(--danger);color:#fff;}
+    .banner.ok    {background:var(--success);color:#0f1117;}
+
+    .empty{text-align:center;color:var(--text2);font-size:14px;padding:48px 20px;}
+    .empty-icon{font-size:44px;margin-bottom:12px;}
+
+    .notif-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:13px 15px;}
+    .notif-row-l{display:flex;flex-direction:column;gap:2px;}
+    .notif-lbl{font-size:14px;font-weight:600;}
+    .notif-sub{font-size:12px;color:var(--text2);}
+    .notif-btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;}
+    .notif-btn.granted{background:var(--surface);color:var(--success);border:1px solid var(--border);cursor:default;}
+
+    .leaflet-container{background:#1a1d27!important;}
+    .leaflet-popup-content-wrapper{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:12px;}
+    .leaflet-popup-tip{background:var(--surface);}
+    .leaflet-popup-content{margin:12px 16px;}
+    .zpop strong{display:block;font-size:14px;margin-bottom:3px;}
+    .zpop span{font-size:12px;color:var(--text2);display:block;line-height:1.6;}
+    ::-webkit-scrollbar{width:3px;}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Park<span>ír</span></h1>
+  <div style="font-size:12px;color:var(--text2)" id="hdrStatus">Nincs aktív parkolás</div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('timer')">⏱ Parkolás</button>
+  <button class="tab" onclick="switchTab('map')">🗺 Térkép</button>
+  <button class="tab" onclick="switchTab('history')">📋 Előzmények</button>
+</div>
+
+<div class="view active" id="view-timer">
+  <div class="scroll" id="timerContent"></div>
+</div>
+<div class="view" id="view-map">
+  <div id="map"></div>
+</div>
+<div class="view" id="view-history">
+  <div class="scroll" id="historyContent"></div>
+</div>
+
+<!-- REMINDER EDIT MODAL (mid-session) -->
+<div class="modal-overlay" id="remModal">
+  <div class="modal">
+    <div class="modal-title">⏰ Emlékeztető</div>
+    <div class="modal-sub">Csak értesít — a parkolást nem állítja le</div>
+    <div class="slider-wrap">
+      <div class="slider-main">
+        <input type="range" id="remModalSlider" min="5" max="180" step="5" value="15" oninput="onRemModalSlider(this.value)"/>
+        <span class="slider-current" id="remModalVal">15 p</span>
+      </div>
+      <div class="slider-labels"><span>5 p</span><span>3 óra</span></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-full" onclick="confirmRem()">Beállítás</button>
+      <button class="btn btn-danger btn-full" onclick="disableRem()">Emlékeztető kikapcsolása</button>
+      <button class="btn btn-secondary btn-full" onclick="closeModal('remModal')">Mégsem</button>
+    </div>
+  </div>
+</div>
+
+<!-- REMINDER FIRED MODAL -->
+<div class="modal-overlay" id="firedModal">
+  <div class="modal">
+    <div class="modal-title">⏰ Emlékeztető lejárt</div>
+    <div class="modal-sub" id="firedModalSub"></div>
+    <div class="modal-actions">
+      <button class="btn btn-sms btn-full" onclick="onFiredStop()">⏹ STOP SMS + leállítás</button>
+      <button class="btn btn-warn btn-full" onclick="onFiredMore()">⏰ Új emlékeztető</button>
+      <button class="btn btn-secondary btn-full" onclick="closeModal('firedModal')">Folytatom</button>
+    </div>
+  </div>
+</div>
+
+<!-- AUTO-STOPPED MODAL -->
+<div class="modal-overlay" id="autoStopModal">
+  <div class="modal">
+    <div class="modal-title">🚫 3 óra eltelt</div>
+    <div class="modal-sub">A parkolás automatikusan leállt a zóna szabályai szerint. Nincs szükség STOP SMS-re.</div>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-full" onclick="onAutoStopOk()">Rendben</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLATES MANAGEMENT MODAL -->
+<div class="modal-overlay" id="platesModal">
+  <div class="modal">
+    <div class="modal-title">🚗 Rendszámok</div>
+    <div class="plates-modal-scroll" id="platesList"></div>
+    <div id="plateFormWrap"></div>
+    <div class="modal-actions" id="platesModalActions">
+      <button class="btn btn-primary btn-full" onclick="showAddPlateForm()">+ Új rendszám</button>
+      <button class="btn btn-secondary btn-full" onclick="closeModal('platesModal')">Kész</button>
+    </div>
+  </div>
+</div>
+
+<div class="banner" id="banner"><span id="bannerIcon"></span><span id="bannerText"></span></div>
+
+<script>
+// ════════════════════════════
+// STATE
+// ════════════════════════════
+// session: { plate, zoneCode, startTime, reminderAt|null, reminderMin|null, reminderFired, autoStopped }
+let session = null;
+let history = JSON.parse(localStorage.getItem('ph') || '[]');
+let ticker  = null;
+let bannerT = null;
+let mapObj  = null;
+
+let savedPlate = localStorage.getItem('sPlate') || '';
+let savedZone  = localStorage.getItem('sZone')  || '';
+let formRemOn  = true;
+let formRemMin = 15;
+let remModalMin = 15;
+
+// ── PLATES ──
+// plate: { id, plate, name, colour, isDefault }
+const PLATE_COLOURS = ['#4f8ef7','#f75f5f','#f7a84f','#4fc98e','#7c5cfc','#f75fc8','#e8eaf6','#8890b0'];
+let plates = [];
+let selectedPlateId = null; // currently selected in form dropdown
+let ddOpen = false;
+let editingPlateId = null; // null = adding new
+
+function loadPlates() {
+  try { plates = JSON.parse(localStorage.getItem('plates') || '[]'); } catch(e) { plates = []; }
+  const def = plates.find(p => p.isDefault) || plates[0];
+  selectedPlateId = def?.id || null;
+}
+function savePlates() { localStorage.setItem('plates', JSON.stringify(plates)); }
+function getSelectedPlate() { return plates.find(p => p.id === selectedPlateId) || null; }
+function plateById(id) { return plates.find(p => p.id === id); }
+
+const AUTO_STOP_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+// ════════════════════════════
+// UTILS
+// ════════════════════════════
+function fmtMin(m) {
+  if (m < 60) return `${m} p`;
+  const h = Math.floor(m/60), r = m%60;
+  return r ? `${h} ó ${r} p` : `${h} óra`;
+}
+function fmtElapsed(ms) {
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  if (h > 0) return `${pad(h)}:${pad(m)}:${pad(sec)}`;
+  return `${pad(m)}:${pad(sec)}`;
+}
+function fmtCountdown(ms) {
+  const s = Math.max(0, Math.floor(ms/1000));
+  const m = Math.floor(s/60), sec = s%60;
+  return `${pad(m)}:${pad(sec)}`;
+}
+function fmtDate(ts) { return new Date(ts).toLocaleString('hu-HU',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function fmtTime(ts) { const d=new Date(ts); return `${d.getHours()}:${pad(d.getMinutes())}`; }
+function pad(n) { return String(n).padStart(2,'0'); }
+
+function smsNum(z)   { return `+363076${z}`; }
+function smsStart(plate) { return plate.replace(/[^A-Z0-9]/gi,'').toUpperCase(); }
+function linkStart(plate,zone) { return `sms:${smsNum(zone)}?&body=${encodeURIComponent(smsStart(plate))}`; }
+function linkStop(zone)        { return `sms:${smsNum(zone)}?&body=${encodeURIComponent('STOP')}`; }
+
+// ════════════════════════════
+// BANNER
+// ════════════════════════════
+function showBanner(text, type='info', icon='') {
+  const b = document.getElementById('banner');
+  document.getElementById('bannerIcon').textContent = icon;
+  document.getElementById('bannerText').textContent = text;
+  b.className = `banner show ${type}`;
+  if (bannerT) clearTimeout(bannerT);
+  bannerT = setTimeout(() => b.classList.remove('show'), 5500);
+}
+
+// ════════════════════════════
+// NOTIFICATIONS
+// ════════════════════════════
+async function requestNotif() {
+  if (!('Notification' in window)) return;
+  await Notification.requestPermission();
+  renderTimer(); showBanner('Értesítések bekapcsolva','ok','✅');
+}
+function fireNotif(title, body) {
+  if (Notification?.permission === 'granted') new Notification(title,{body,tag:'parkir'});
+}
+
+// ════════════════════════════
+// SESSION
+// ════════════════════════════
+function startSession(plate, zone, remMin) {
+  if (ticker) clearInterval(ticker);
+  const now = Date.now();
+  session = {
+    plate, zoneCode: zone, startTime: now,
+    reminderAt:  remMin ? now + remMin * 60000 : null,
+    reminderMin: remMin || null,
+    reminderFired: false,
+    autoStopped: false,
+  };
+  saveSession();
+  ticker = setInterval(tick, 1000);
+  updateHdr(); renderTimer();
+}
+
+function endSession(manual=true) {
+  if (!session) return;
+  if (ticker) clearInterval(ticker);
+  history.unshift({
+    plate: session.plate, zoneCode: session.zoneCode,
+    startTime: session.startTime,
+    durationMin: Math.round((Date.now()-session.startTime)/60000)
+  });
+  localStorage.setItem('ph', JSON.stringify(history.slice(0,30)));
+  session = null; localStorage.removeItem('ps');
+  updateHdr(); renderTimer();
+}
+
+function saveSession() { localStorage.setItem('ps', JSON.stringify(session)); }
+
+function updateHdr() {
+  const el = document.getElementById('hdrStatus');
+  if (session && !session.autoStopped) {
+    el.textContent = `🚗 ${session.plate} · ${session.zoneCode}`;
+    el.style.color = 'var(--accent)';
+  } else if (session && session.autoStopped) {
+    el.textContent = `⛔ ${session.plate} · automatikusan leállt`;
+    el.style.color = 'var(--danger)';
+  } else {
+    el.textContent = 'Nincs aktív parkolás';
+    el.style.color = 'var(--text2)';
+  }
+}
+
+// ════════════════════════════
+// TICK
+// ════════════════════════════
+function tick() {
+  if (!session) return;
+  const now = Date.now();
+  const elapsed = now - session.startTime;
+
+  // Reminder fired?
+  if (session.reminderAt && !session.reminderFired && now >= session.reminderAt) {
+    session.reminderFired = true; saveSession();
+    fireNotif('⏰ Parkolási emlékeztető', `${session.plate} – ${fmtMin(session.reminderMin)} eltelt`);
+    openFiredModal();
+  }
+
+  // 3-hour auto stop
+  if (!session.autoStopped && elapsed >= AUTO_STOP_MS) {
+    session.autoStopped = true; saveSession();
+    if (ticker) clearInterval(ticker);
+    fireNotif('🚫 Parkolás automatikusan leállt', `${session.plate} – 3 óra eltelt, a rendszer leállította`);
+    document.getElementById('autoStopModal').classList.add('open');
+    updateHdr(); renderTimer(); return;
+  }
+
+  updateDOM();
+}
+
+function updateDOM() {
+  if (!session || session.autoStopped) return;
+  const now = Date.now();
+  const elapsed = now - session.startTime;
+  const autoLeft = AUTO_STOP_MS - elapsed;
+  const nearLimit = autoLeft <= 15 * 60000; // warn last 15 min
+
+  const el = document.getElementById('elapsedDisplay');
+  const rc = document.getElementById('remCountdown');
+  const card = document.getElementById('sCard');
+  const autoEl = document.getElementById('autoLeft');
+
+  if (el) {
+    el.textContent = fmtElapsed(elapsed);
+    el.className = 'elapsed-display' + (nearLimit ? ' near-limit' : '');
+  }
+  if (card) card.className = 'session-card' + (nearLimit ? ' near-limit' : '');
+  if (autoEl) {
+    autoEl.textContent = fmtCountdown(autoLeft);
+    autoEl.className = 'autostop-val' + (nearLimit ? ' near' : '');
+  }
+  if (rc && session.reminderAt && !session.reminderFired) {
+    const rl = session.reminderAt - now;
+    rc.textContent = rl > 0 ? fmtCountdown(rl) : '00:00';
+  }
+}
+
+// ════════════════════════════
+// RENDER – TIMER TAB
+// ════════════════════════════
+function renderTimer() {
+  const c = document.getElementById('timerContent');
+  if (!session) { renderForm(c); return; }
+
+  const now = Date.now();
+  const elapsed = now - session.startTime;
+  const autoLeft = AUTO_STOP_MS - elapsed;
+  const nearLimit = autoLeft <= 15 * 60000;
+  const hasRem = session.reminderAt && !session.reminderFired;
+  const remLeft = hasRem ? session.reminderAt - now : 0;
+
+  if (session.autoStopped) {
+    // Auto-stopped state
+    c.innerHTML = `
+      <div class="session-card auto-stopped" id="sCard">
+        <div class="card-title">Parkolás vége</div>
+        <div class="elapsed-display auto-stopped">${fmtElapsed(elapsed)}</div>
+        <div class="elapsed-meta">Leállt: ${fmtTime(session.startTime + AUTO_STOP_MS)} · Zóna: ${session.zoneCode}</div>
+        <div class="auto-stopped-banner">
+          <div class="auto-stopped-title">🚫 3 óra eltelt – automatikus leállás</div>
+          <div class="auto-stopped-text">A rendszer leállította a parkolást. Nincs szükség STOP SMS-re.</div>
+        </div>
+        <div class="chips">
+          <div class="chip">🚗 <span>${session.plate}</span></div>
+          <div class="chip">📍 <span>${session.zoneCode}</span></div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="endSession()">Befejezés</button>
+      </div>`;
+    return;
+  }
+
+  c.innerHTML = `
+    <div class="session-card${nearLimit ? ' near-limit' : ''}" id="sCard">
+      <div class="card-title">Aktív parkolás</div>
+      <div class="elapsed-display${nearLimit ? ' near-limit' : ''}" id="elapsedDisplay">${fmtElapsed(elapsed)}</div>
+      <div class="elapsed-meta">Indítva: ${fmtTime(session.startTime)} · Zóna: ${session.zoneCode}</div>
+
+      <!-- Reminder row -->
+      <div class="rem-row${hasRem && remLeft <= 60000 ? ' firing' : ''}" id="remRow">
+        <div class="rem-left">
+          <div class="rem-label${hasRem && remLeft <= 60000 ? ' firing' : ''}" id="remLabel">
+            ${hasRem ? '⏰ Emlékeztető' : session.reminderFired ? '⏰ Emlékeztető lejárt' : '⏰ Nincs emlékeztető'}
+          </div>
+          ${hasRem
+            ? `<div class="rem-val" id="remCountdown">${fmtCountdown(remLeft)}</div>`
+            : session.reminderFired
+              ? `<div class="rem-val fired">${fmtMin(session.reminderMin)} után lejárt</div>`
+              : `<div style="font-size:12px;color:var(--text2)">Érintsd meg a beállításhoz</div>`
+          }
+        </div>
+        <button class="rem-edit" onclick="openRemModal()">${hasRem ? 'Módosít' : '+ Beállít'}</button>
+      </div>
+
+      <!-- Auto-stop countdown -->
+      <div class="autostop-row${nearLimit ? ' near' : ''}">
+        <div>
+          <div class="autostop-label">🚫 Automatikus leállás</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:1px">3 óra után a rendszer leállítja</div>
+        </div>
+        <div class="autostop-val${nearLimit ? ' near' : ''}" id="autoLeft">${fmtCountdown(autoLeft)}</div>
+      </div>
+
+      <div class="chips">
+        <div class="chip">🚗 <span>${session.plate}</span></div>
+        <div class="chip">📍 <span>${session.zoneCode}</span></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-warn" onclick="openRemModal()">⏰ + Emlékeztető</button>
+        <button class="btn btn-danger" onclick="onStop()">⏹ STOP + vége</button>
+      </div>
+    </div>`;
+}
+
+// ════════════════════════════
+// FORM
+// ════════════════════════════
+function renderForm(c) {
+  const selP = getSelectedPlate();
+  const notifGranted = (typeof Notification !== 'undefined') && Notification.permission === 'granted';
+
+  // Build plate section
+  let plateSection = '';
+  if (plates.length === 0) {
+    plateSection = '<div style="background:rgba(247,168,79,.1);border:1px solid rgba(247,168,79,.3);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--warn);">Nincs mentett rendszám. <span style="cursor:pointer;text-decoration:underline" onclick="openPlatesModal()">Adj hozzá egyet →</span></div>';
+  } else {
+    const nameHtml = selP && selP.name ? '<div style="font-size:11px;color:var(--text2)">' + selP.name + '</div>' : '';
+    const colour = selP ? selP.colour : 'var(--text2)';
+    const plateText = selP ? selP.plate : '—';
+    let ddItems = '';
+    for (let i = 0; i < plates.length; i++) {
+      const p = plates[i];
+      const isSel = p.id === selectedPlateId;
+      const nameRow = p.name ? ('<div class="plate-dd-name">' + p.name + (p.isDefault ? ' · alapértelmezett' : '') + '</div>') : (p.isDefault ? '<div class="plate-dd-name">alapértelmezett</div>' : '');
+      const check = isSel ? '<div class="plate-dd-check">✓</div>' : '';
+      ddItems += '<div class="plate-dd-item' + (isSel ? ' selected' : '') + '" onclick="selectPlate(\'' + p.id + '\')">'
+        + '<div class="plate-dot" style="background:' + p.colour + '"></div>'
+        + '<div><div class="plate-dd-plate">' + p.plate + '</div>' + nameRow + '</div>'
+        + check + '</div>';
+    }
+    plateSection = '<div class="plate-selector-row">'
+      + '<div class="plate-dropdown" id="plateDd" onclick="toggleDd()">'
+      + '<div class="plate-dot" style="background:' + colour + '"></div>'
+      + '<div><div style="font-size:15px;font-weight:700;font-family:monospace;letter-spacing:1px">' + plateText + '</div>' + nameHtml + '</div>'
+      + '<div class="plate-dd-arrow" id="plateDdArrow">▼</div>'
+      + '</div>'
+      + '<button class="plate-manage-btn" onclick="openPlatesModal()">⚙️</button>'
+      + '</div>'
+      + '<div class="plate-dd-list" id="plateDdList">' + ddItems + '</div>';
+  }
+
+  // Build reminder section
+  let remSection = '';
+  if (formRemOn) {
+    remSection = '<div class="rem-section" id="remSection">'
+      + '<div class="rem-section-head">'
+      + '<div class="rem-section-title">⏰ ' + fmtMin(formRemMin) + ' után értesít</div>'
+      + '<button class="rem-off-btn" onclick="setFormRemOn(false)">Kikapcsol</button>'
+      + '</div>'
+      + '<div class="slider-wrap">'
+      + '<div class="slider-main">'
+      + '<input type="range" id="formRemSlider" min="5" max="180" step="5" value="' + formRemMin + '" oninput="onFormSlider(this.value)"/>'
+      + '<span class="slider-current" id="formRemVal">' + fmtMin(formRemMin) + '</span>'
+      + '</div>'
+      + '<div class="slider-labels"><span>5 p</span><span>3 óra</span></div>'
+      + '</div>'
+      + '<div class="hint" style="margin-top:8px">Csak értesít — a parkolást <strong>nem állítja le</strong>.</div>'
+      + '</div>';
+  } else {
+    remSection = '<div class="rem-off-section" id="remSection">'
+      + '<div class="rem-off-label">⏰ Emlékeztető kikapcsolva</div>'
+      + '<button class="rem-on-btn" onclick="setFormRemOn(true)">Bekapcsol</button>'
+      + '</div>';
+  }
+
+  // Build notif row
+  const notifRow = '<div class="notif-row">'
+    + '<div class="notif-row-l">'
+    + '<div class="notif-lbl">Értesítések</div>'
+    + '<div class="notif-sub">' + (notifGranted ? 'Bekapcsolva' : 'Kikapcsolva – emlékeztetőhöz szükséges') + '</div>'
+    + '</div>'
+    + (notifGranted ? '<div class="notif-btn granted">✓ OK</div>' : '<button class="notif-btn" onclick="requestNotif()">Engedély</button>')
+    + '</div>';
+
+  c.innerHTML = '<div class="card">'
+    + '<div class="card-title">Új parkolás</div>'
+    + '<div class="form-row"><label class="form-label">Rendszám</label>' + plateSection + '</div>'
+    + '<div class="form-row">'
+    + '<label class="form-label">Zónakód <span style="text-transform:none;font-weight:400;letter-spacing:0">(4 szám az automatáról)</span></label>'
+    + '<input class="form-input" id="iZone" type="tel" style="font-size:22px;font-weight:700;letter-spacing:4px;text-align:center;padding:14px" placeholder="0000" maxlength="4" value="' + savedZone + '" oninput="savedZone=this.value.replace(/\\D/g,\'\');this.value=savedZone;localStorage.setItem(\'sZone\',savedZone);updPreview()"/>'
+    + '<div class="hint">A 4 jegyű zónakód a parkolóautomata tetején látható.</div>'
+    + '</div>'
+    + '<div class="form-row"><label class="form-label">Emlékeztető</label>' + remSection + '</div>'
+    + '<div id="smsBox"></div>'
+    + '<button class="btn btn-sms btn-full" style="margin-top:16px" onclick="onSendSms()">💬 SMS küldése (parkolás indítása)</button>'
+    + '<button class="btn btn-primary btn-full" style="margin-top:8px" onclick="onStartTimer()">▶ Időzítő indítása</button>'
+    + '<div class="hint" style="text-align:center;margin-top:8px">Küldd el az SMS-t először, majd indítsd el az időzítőt.</div>'
+    + '</div>'
+    + notifRow;
+
+  updPreview();
+}
+
+function setFormRemOn(on) {
+  formRemOn = on;
+  renderTimer(); // re-render form with updated state
+}
+
+function onFormSlider(v) {
+  formRemMin = parseInt(v);
+  const el = document.getElementById('formRemVal');
+  const head = document.querySelector('.rem-section-title');
+  if (el) el.textContent = fmtMin(formRemMin);
+  if (head) head.textContent = `⏰ ${fmtMin(formRemMin)} után értesít`;
+}
+
+function updPreview() {
+  const box = document.getElementById('smsBox');
+  if (!box) return;
+  const selP = getSelectedPlate();
+  const plate = selP?.plate || '';
+  const zone  = (document.getElementById('iZone')?.value || savedZone || '').replace(/\D/g,'');
+  if (!plate || zone.length !== 4) {
+    box.innerHTML = `<div class="sms-preview"><div class="sms-preview-lbl">SMS előnézet</div><div class="sms-preview-note">${!plate ? 'Válassz rendszámot.' : 'Add meg a zónakódot.'}</div></div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="sms-preview">
+      <div class="sms-preview-lbl">SMS előnézet – indítás</div>
+      <div class="sms-preview-to">Címzett: <strong>${smsNum(zone)}</strong></div>
+      <div class="sms-preview-body">${smsStart(plate)}</div>
+      <div class="sms-preview-note">Határozatlan idejű parkolás. Leállításhoz küldj <strong style="color:var(--accent)">STOP</strong>-ot ugyanerre a számra.</div>
+    </div>`;
+}
+
+function onSendSms() {
+  const selP = getSelectedPlate();
+  const zone  = (document.getElementById('iZone')?.value || '').replace(/\D/g,'');
+  if (!selP) { showBanner('Válassz rendszámot!','warn','⚠️'); return; }
+  if (zone.length !== 4) { showBanner('A zónakód pontosan 4 szám!','warn','⚠️'); return; }
+  window.location.href = linkStart(selP.plate, zone);
+}
+
+function onStartTimer() {
+  const selP = getSelectedPlate();
+  const zone  = (document.getElementById('iZone')?.value || '').replace(/\D/g,'');
+  if (!selP) { showBanner('Válassz rendszámot!','warn','⚠️'); return; }
+  if (zone.length !== 4) { showBanner('A zónakód pontosan 4 szám!','warn','⚠️'); return; }
+  startSession(selP.plate, zone, formRemOn ? formRemMin : null);
+  showBanner('Időzítő elindult!','ok','✅');
+}
+
+// ════════════════════════════
+// PLATE DROPDOWN
+// ════════════════════════════
+function toggleDd() {
+  ddOpen = !ddOpen;
+  document.getElementById('plateDdList')?.classList.toggle('open', ddOpen);
+  document.getElementById('plateDdArrow')?.classList.toggle('open', ddOpen);
+}
+function selectPlate(id) {
+  selectedPlateId = id;
+  ddOpen = false;
+  renderTimer();
+}
+
+// ════════════════════════════
+// PLATES MANAGEMENT MODAL
+// ════════════════════════════
+function openPlatesModal() {
+  editingPlateId = null;
+  renderPlatesList();
+  document.getElementById('plateFormWrap').innerHTML = '';
+  document.getElementById('platesModalActions').style.display = '';
+  document.getElementById('platesModal').classList.add('open');
+}
+function renderPlatesList() {
+  const el = document.getElementById('platesList');
+  if (!el) return;
+  if (!plates.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text2);font-size:13px;padding:20px 0">Még nincs rendszám mentve.</div>';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < plates.length; i++) {
+    const p = plates[i];
+    const nameHtml = p.name ? '<div class="plate-mgmt-name">' + p.name + '</div>' : '';
+    const defHtml = p.isDefault ? '<div class="plate-mgmt-default">★ Alapértelmezett</div>' : '';
+    const defBtn = !p.isDefault ? '<button class="pmg-btn def" onclick="setDefaultPlate(\'' + p.id + '\')" title="Alapértelmezett">★</button>' : '';
+    html += '<div class="plate-mgmt-item">'
+      + '<div class="plate-mgmt-dot" style="background:' + p.colour + '" onclick="cycleColour(\'' + p.id + '\')" title="Szín váltása"></div>'
+      + '<div class="plate-mgmt-info">'
+      + '<div class="plate-mgmt-plate">' + p.plate + '</div>'
+      + nameHtml + defHtml
+      + '</div>'
+      + '<div class="plate-mgmt-actions">'
+      + defBtn
+      + '<button class="pmg-btn" onclick="showEditPlateForm(\'' + p.id + '\')">✏️</button>'
+      + '<button class="pmg-btn del" onclick="deletePlate(\'' + p.id + '\')">✕</button>'
+      + '</div></div>';
+  }
+  el.innerHTML = html;
+}
+function cycleColour(id) {
+  const p = plateById(id); if (!p) return;
+  const idx = PLATE_COLOURS.indexOf(p.colour);
+  p.colour = PLATE_COLOURS[(idx + 1) % PLATE_COLOURS.length];
+  savePlates(); renderPlatesList();
+}
+function setDefaultPlate(id) {
+  plates.forEach(p => p.isDefault = (p.id === id));
+  selectedPlateId = id;
+  savePlates(); renderPlatesList();
+}
+function deletePlate(id) {
+  if (plates.length === 1) { showBanner('Legalább egy rendszámnak maradnia kell','warn','⚠️'); return; }
+  plates = plates.filter(p => p.id !== id);
+  if (selectedPlateId === id) selectedPlateId = (plates.find(p => p.isDefault) || plates[0])?.id || null;
+  savePlates(); renderPlatesList();
+}
+function showAddPlateForm() {
+  editingPlateId = null; renderPlateForm(null);
+  document.getElementById('platesModalActions').style.display = 'none';
+}
+function showEditPlateForm(id) {
+  editingPlateId = id; renderPlateForm(plateById(id));
+  document.getElementById('platesModalActions').style.display = 'none';
+}
+let formColour = PLATE_COLOURS[0];
+function renderPlateForm(existing) {
+  formColour = existing ? existing.colour : PLATE_COLOURS[0];
+  let swatches = '';
+  for (let i = 0; i < PLATE_COLOURS.length; i++) {
+    const c = PLATE_COLOURS[i];
+    swatches += '<div class="colour-swatch' + (c === formColour ? ' sel' : '') + '" style="background:' + c + '" onclick="pickFormColour(\'' + c + '\',this)"></div>';
+  }
+  document.getElementById('plateFormWrap').innerHTML = '<div class="plate-form">'
+    + '<div class="plate-form-title">' + (existing ? 'Szerkesztés' : 'Új rendszám') + '</div>'
+    + '<input type="text" id="pfPlate" placeholder="ABC123" maxlength="8" style="text-transform:uppercase;font-family:monospace;letter-spacing:2px;width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:16px;font-weight:700;outline:none;margin-bottom:8px" value="' + (existing ? existing.plate : '') + '" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/gi,\'\')"/>'
+    + '<input type="text" id="pfName" placeholder="Becenév (pl. Saját, Feleség...)" maxlength="24" style="width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:14px;font-weight:600;outline:none;margin-bottom:10px" value="' + (existing ? (existing.name || '') : '') + '"/>'
+    + '<div class="colour-picker-row">' + swatches + '</div>'
+    + '<div class="plate-form-btns">'
+    + '<button class="btn btn-primary" style="flex:2" onclick="savePlateForm()">Mentés</button>'
+    + '<button class="btn btn-secondary" style="flex:1" onclick="cancelPlateForm()">Mégsem</button>'
+    + '</div></div>';
+}
+function pickFormColour(c, el) {
+  formColour = c;
+  document.querySelectorAll('.colour-swatch').forEach(s => s.classList.remove('sel'));
+  el.classList.add('sel');
+}
+function savePlateForm() {
+  const plate = document.getElementById('pfPlate')?.value.toUpperCase().replace(/[^A-Z0-9]/gi,'');
+  const name  = document.getElementById('pfName')?.value.trim();
+  if (!plate || plate.length < 2) { showBanner('Add meg a rendszámot!','warn','⚠️'); return; }
+  if (editingPlateId) {
+    const p = plateById(editingPlateId);
+    if (p) { p.plate = plate; p.name = name; p.colour = formColour; }
+  } else {
+    const np = { id: Date.now().toString(), plate, name, colour: formColour, isDefault: plates.length === 0 };
+    plates.push(np);
+    selectedPlateId = np.id;
+  }
+  savePlates(); cancelPlateForm(); renderPlatesList();
+}
+function cancelPlateForm() {
+  editingPlateId = null;
+  document.getElementById('plateFormWrap').innerHTML = '';
+  document.getElementById('platesModalActions').style.display = '';
+}
+
+// ════════════════════════════
+// STOP FLOW
+// ════════════════════════════
+function onStop() {
+  if (!session) return;
+  window.location.href = linkStop(session.zoneCode);
+  setTimeout(() => endSession(), 300);
+}
+
+// ════════════════════════════
+// REMINDER MODAL (mid-session)
+// ════════════════════════════
+function openRemModal() {
+  const cur = session?.reminderMin || 15;
+  remModalMin = cur;
+  document.getElementById('remModalSlider').value = cur;
+  document.getElementById('remModalVal').textContent = fmtMin(cur);
+  document.getElementById('remModal').classList.add('open');
+}
+function onRemModalSlider(v) {
+  remModalMin = parseInt(v);
+  document.getElementById('remModalVal').textContent = fmtMin(remModalMin);
+}
+function confirmRem() {
+  if (!session) return;
+  session.reminderAt = Date.now() + remModalMin * 60000;
+  session.reminderMin = remModalMin;
+  session.reminderFired = false;
+  saveSession();
+  closeModal('remModal');
+  showBanner(`Emlékeztető: ${fmtMin(remModalMin)} múlva`,'ok','⏰');
+  renderTimer();
+}
+function disableRem() {
+  if (!session) return;
+  session.reminderAt = null; session.reminderMin = null; session.reminderFired = false;
+  saveSession();
+  closeModal('remModal');
+  showBanner('Emlékeztető kikapcsolva','info','🔕');
+  renderTimer();
+}
+
+// ════════════════════════════
+// FIRED MODAL
+// ════════════════════════════
+function openFiredModal() {
+  const sub = document.getElementById('firedModalSub');
+  if (sub && session) sub.textContent = `🚗 ${session.plate} – ${fmtMin(session.reminderMin)} eltelt. A parkolás még fut.`;
+  document.getElementById('firedModal').classList.add('open');
+  renderTimer();
+}
+function onFiredStop() {
+  closeModal('firedModal');
+  onStop();
+}
+function onFiredMore() { closeModal('firedModal'); openRemModal(); }
+
+// ════════════════════════════
+// AUTO-STOP MODAL
+// ════════════════════════════
+function onAutoStopOk() {
+  closeModal('autoStopModal');
+  endSession();
+}
+
+function closeModal(id) { document.getElementById(id)?.classList.remove('open'); }
+
+// ════════════════════════════
+// HISTORY
+// ════════════════════════════
+function renderHistory() {
+  const c = document.getElementById('historyContent');
+  if (!history.length) { c.innerHTML=`<div class="empty"><div class="empty-icon">🅿️</div>Még nincs előzmény.</div>`; return; }
+  c.innerHTML = history.map(h => `
+    <div class="history-item">
+      <div>
+        <div class="history-plate">🚗 ${h.plate}</div>
+        <div class="history-meta">${fmtDate(h.startTime)} · ${fmtMin(h.durationMin)}</div>
+      </div>
+      <div class="history-zone">${h.zoneCode}</div>
+    </div>`).join('') +
+    `<button class="btn btn-danger btn-full" style="flex:none" onclick="clearHistory()">🗑 Előzmények törlése</button>`;
+}
+function clearHistory() {
+  if (!confirm('Törlöd az összes előzményt?')) return;
+  history=[]; localStorage.removeItem('ph'); renderHistory();
+}
+
+// ════════════════════════════
+// MAP
+// ════════════════════════════
+function initMap() {
+  if (mapObj) return;
+  mapObj = L.map('map',{zoomControl:false}).setView([47.4979,19.0402],13);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© OSM © CARTO',maxZoom:19}).addTo(mapObj);
+  L.control.zoom({position:'topright'}).addTo(mapObj);
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(p => {
+      L.circleMarker([p.coords.latitude,p.coords.longitude],{radius:9,fillColor:'#4f8ef7',color:'#fff',weight:2.5,fillOpacity:1})
+        .addTo(mapObj).bindPopup('📍 Te vagy itt');
+      mapObj.setView([p.coords.latitude,p.coords.longitude],16);
+    });
+  }
+}
+
+// ════════════════════════════
+// TABS
+// ════════════════════════════
+function switchTab(tab) {
+  ['timer','map','history'].forEach((t,i) => {
+    document.querySelectorAll('.tab')[i].classList.toggle('active',t===tab);
+    document.getElementById(`view-${t}`).classList.toggle('active',t===tab);
+  });
+  if (tab==='map') setTimeout(initMap,50);
+  if (tab==='history') renderHistory();
+}
+
+// ════════════════════════════
+// INIT
+// ════════════════════════════
+function init() {
+  loadPlates();
+  try {
+    const s = JSON.parse(localStorage.getItem('ps')||'null');
+    if (s && s.startTime > Date.now() - 4*3600000) {
+      session = s;
+      if (!session.autoStopped) ticker = setInterval(tick, 1000);
+      updateHdr();
+    } else if (s) localStorage.removeItem('ps');
+  } catch(e){}
+  renderTimer();
+}
+init();
+</script>
+</body>
+</html>
