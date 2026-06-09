@@ -1,8 +1,9 @@
 {
-  "name": "Parkír – Budapest Parkolás",
-  "short_name": "Parkír",
-  "description": "Budapest parkolási időmérő és zónatérkép",
-  "start_url": "/",
+  "name": "BParking – Budapest Parkolás",
+  "short_name": "BParking",
+  "description": "Budapest parkolási időmérő",
+  "start_url": "/budapest_parking/",
+  "scope": "/budapest_parking/",
   "display": "standalone",
   "background_color": "#0f1117",
   "theme_color": "#0f1117",
